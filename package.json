@@ -36,6 +36,9 @@
     "type": "git",
     "url": "git+https://github.com/hermai-ai/hermai-mcp.git"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "bugs": {
     "url": "https://github.com/hermai-ai/hermai-mcp/issues"
   },
