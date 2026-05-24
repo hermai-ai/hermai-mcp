@@ -1,0 +1,52 @@
+{
+  "name": "@hermai/mcp",
+  "version": "1.0.0",
+  "description": "Hermai MCP server for website API schema lookup, request intake, and workflow classification.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "hermai-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "server.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "prepublishOnly": "npm run test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "schemas",
+    "browser-automation",
+    "hermai"
+  ],
+  "author": "Hermai <team@hermai.ai>",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://hermai.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hermai-ai/hermai-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hermai-ai/hermai-mcp/issues"
+  },
+  "mcpName": "io.github.hermai-ai/hermai-mcp",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  }
+}
