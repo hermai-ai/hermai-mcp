@@ -9,13 +9,13 @@ Use this package when an agent runtime supports MCP and should call Hermai as na
 Run directly with `npx`:
 
 ```bash
-npx -y @hermai/mcp
+npx -y @hermai-ai/mcp
 ```
 
 Or install globally:
 
 ```bash
-npm install -g @hermai/mcp
+npm install -g @hermai-ai/mcp
 hermai-mcp
 ```
 
@@ -26,7 +26,7 @@ hermai-mcp
   "mcpServers": {
     "hermai": {
       "command": "npx",
-      "args": ["-y", "@hermai/mcp"]
+      "args": ["-y", "@hermai-ai/mcp"]
     }
   }
 }

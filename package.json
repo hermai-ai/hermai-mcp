@@ -1,5 +1,5 @@
 {
-  "name": "@hermai/mcp",
+  "name": "@hermai-ai/mcp",
   "version": "1.0.0",
   "description": "Hermai MCP server for website API schema lookup, request intake, and workflow classification.",
   "type": "module",
