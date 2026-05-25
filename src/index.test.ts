@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildSchemaRequestBody,
   classifyWorkflow,
+  isCliEntrypoint,
   missingIntakeFields,
   nextIntakeQuestion,
   schemaRequestIdempotencyKey,
@@ -52,4 +53,10 @@ test("schemaRequestIdempotencyKey is stable and overrideable", () => {
   assert.equal(schemaRequestIdempotencyKey(args), schemaRequestIdempotencyKey(args));
   assert.match(schemaRequestIdempotencyKey(args), /^mcp_[0-9a-f]{32}$/);
   assert.equal(schemaRequestIdempotencyKey({ ...args, idempotency_key: "custom" }), "custom");
+});
+
+test("isCliEntrypoint tolerates npm bin symlinks", () => {
+  const fileUrl = new URL("./index.js", import.meta.url).href;
+  assert.equal(isCliEntrypoint(fileUrl, new URL("./index.js", import.meta.url).pathname), true);
+  assert.equal(isCliEntrypoint(fileUrl, undefined), false);
 });

@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
 const DEFAULT_API_BASE = "https://api.hermai.ai";
+const SERVER_VERSION = "1.0.1";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -81,7 +84,7 @@ export class HermaiApiClient {
 export function createServer(client = new HermaiApiClient()): McpServer {
   const server = new McpServer({
     name: "hermai-mcp",
-    version: "1.0.0",
+    version: SERVER_VERSION,
   });
 
   server.registerTool(
@@ -363,7 +366,16 @@ async function main(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+export function isCliEntrypoint(metaUrl: string, argvPath: string | undefined): boolean {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(fileURLToPath(metaUrl)) === realpathSync(argvPath);
+  } catch {
+    return false;
+  }
+}
+
+if (isCliEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error) => {
     console.error(error);
     process.exit(1);
