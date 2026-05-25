@@ -36,10 +36,13 @@ jobs:
           fi
       - name: Publish to npm
         if: steps.npm_version.outputs.exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          rm -f "${NPM_CONFIG_USERCONFIG:-}"
-          unset NODE_AUTH_TOKEN
-          unset NPM_CONFIG_USERCONFIG
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN secret is required until npm trusted publishing is confirmed for this package."
+            exit 1
+          fi
           npm publish --access public
       - name: Create GitHub release
         env:
