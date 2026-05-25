@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - run: npm ci
       - run: npm test
       - name: Align package version with tag
@@ -36,8 +38,7 @@ jobs:
         if: steps.npm_version.outputs.exists == 'false'
         run: |
           unset NODE_AUTH_TOKEN
-          rm -f ~/.npmrc
-          npm publish --provenance --access public
+          npm publish --access public
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
