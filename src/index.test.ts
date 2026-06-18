@@ -3,11 +3,28 @@ import test from "node:test";
 import {
   buildSchemaRequestBody,
   classifyWorkflow,
+  fetchSchema,
+  HermaiApiClient,
   isCliEntrypoint,
   missingIntakeFields,
   nextIntakeQuestion,
   schemaRequestIdempotencyKey,
 } from "./index.js";
+
+type CapturedCall = { url: string; init: RequestInit };
+
+function stubClient(response: unknown, status = 200): { client: HermaiApiClient; calls: CapturedCall[] } {
+  const calls: CapturedCall[] = [];
+  const fetchImpl = (async (url: unknown, init: RequestInit = {}) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify(response), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  const client = new HermaiApiClient({ apiKey: "hm_sk_test", apiBase: "https://api.test", fetchImpl });
+  return { client, calls };
+}
 
 test("buildSchemaRequestBody uses production schema request fields", () => {
   const body = buildSchemaRequestBody({
@@ -53,6 +70,54 @@ test("schemaRequestIdempotencyKey is stable and overrideable", () => {
   assert.equal(schemaRequestIdempotencyKey(args), schemaRequestIdempotencyKey(args));
   assert.match(schemaRequestIdempotencyKey(args), /^mcp_[0-9a-f]{32}$/);
   assert.equal(schemaRequestIdempotencyKey({ ...args, idempotency_key: "custom" }), "custom");
+});
+
+test("fetchSchema posts normalized site/endpoint/params with auth and surfaces the full envelope", async () => {
+  const { client, calls } = stubClient({
+    success: true,
+    data: { price: 9.99 },
+    meta: { credits_used: 1, credits_remaining: 41, latency_ms: 1234, cached: false },
+  });
+
+  const envelope = await fetchSchema(client, { site: "Wegmans.COM", endpoint: "product_search", params: { q: "milk" } }, 5000);
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/v1\/fetch$/);
+  assert.equal((calls[0].init.headers as Record<string, string>).Authorization, "Bearer hm_sk_test");
+  const body = JSON.parse(String(calls[0].init.body));
+  assert.equal(body.site, "wegmans.com");
+  assert.equal(body.endpoint, "product_search");
+  assert.deepEqual(body.params, { q: "milk" });
+  assert.equal(envelope.success, true);
+  assert.deepEqual(envelope.data, { price: 9.99 });
+  assert.deepEqual(envelope.meta, { credits_used: 1, credits_remaining: 41, latency_ms: 1234, cached: false });
+});
+
+test("fetchSchema returns structured failures instead of throwing", async () => {
+  const { client } = stubClient(
+    { success: false, error: { code: "INSUFFICIENT_CREDITS", message: "insufficient credits" } },
+    402,
+  );
+
+  const envelope = await fetchSchema(client, { site: "wegmans.com", endpoint: "product_search" }, 5000);
+
+  assert.equal(envelope.success, false);
+  assert.deepEqual(envelope.error, { code: "INSUFFICIENT_CREDITS", message: "insufficient credits" });
+});
+
+test("hasApiKey gates fetch_schema exposure", () => {
+  assert.equal(new HermaiApiClient({ apiKey: "hm_sk_test" }).hasApiKey(), true);
+
+  const savedKey = process.env.HERMAI_API_KEY;
+  const savedPlatform = process.env.HERMAI_PLATFORM_KEY;
+  delete process.env.HERMAI_API_KEY;
+  delete process.env.HERMAI_PLATFORM_KEY;
+  try {
+    assert.equal(new HermaiApiClient().hasApiKey(), false);
+  } finally {
+    if (savedKey !== undefined) process.env.HERMAI_API_KEY = savedKey;
+    if (savedPlatform !== undefined) process.env.HERMAI_PLATFORM_KEY = savedPlatform;
+  }
 });
 
 test("isCliEntrypoint tolerates npm bin symlinks", () => {
