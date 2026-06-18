@@ -8,7 +8,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const DEFAULT_API_BASE = "https://api.hermai.ai";
-const SERVER_VERSION = "1.0.1";
+const SERVER_VERSION = "1.1.0";
+
+// Hosted fetch lanes can be slow (warm browser cold-solves run tens of
+// seconds). Give /v1/fetch a long, bounded, env-overridable timeout
+// instead of inheriting the runtime default.
+const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -29,6 +34,12 @@ type SchemaRequestArgs = {
   idempotency_key?: string;
 };
 
+type FetchSchemaArgs = {
+  site: string;
+  endpoint: string;
+  params?: Record<string, unknown>;
+};
+
 type ApiClientOptions = {
   apiBase?: string;
   apiKey?: string;
@@ -46,7 +57,17 @@ export class HermaiApiClient {
     this.fetchImpl = options.fetchImpl || fetch;
   }
 
-  async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<unknown> {
+  hasApiKey(): boolean {
+    return this.apiKey.length > 0;
+  }
+
+  private async send(
+    method: string,
+    path: string,
+    body: unknown,
+    headers: Record<string, string>,
+    timeoutMs?: number,
+  ): Promise<{ ok: boolean; status: number; text: string; decoded: unknown }> {
     const init: RequestInit = {
       method,
       headers: {
@@ -61,12 +82,33 @@ export class HermaiApiClient {
       (init.headers as Record<string, string>).Authorization = `Bearer ${this.apiKey}`;
     }
 
-    const response = await this.fetchImpl(`${this.apiBase}${path}`, init);
-    const text = await response.text();
-    const decoded = text ? parseJson(text, response.status, method, path) : undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs && timeoutMs > 0) {
+      const controller = new AbortController();
+      timer = setTimeout(() => controller.abort(), timeoutMs);
+      init.signal = controller.signal;
+    }
 
-    if (!response.ok) {
-      throw new Error(`Hermai API ${method} ${path} returned ${response.status}: ${text}`);
+    try {
+      const response = await this.fetchImpl(`${this.apiBase}${path}`, init);
+      const text = await response.text();
+      const decoded = text ? parseJson(text, response.status, method, path) : undefined;
+      return { ok: response.ok, status: response.status, text, decoded };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Hermai API ${method} ${path} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<unknown> {
+    const { ok, status, text, decoded } = await this.send(method, path, body, headers);
+
+    if (!ok) {
+      throw new Error(`Hermai API ${method} ${path} returned ${status}: ${text}`);
     }
 
     if (isRecord(decoded) && typeof decoded.success === "boolean") {
@@ -78,6 +120,26 @@ export class HermaiApiClient {
       }
     }
     return decoded;
+  }
+
+  // callEnvelope returns the full {success, data, error, meta, warnings}
+  // envelope without unwrapping data, so callers can surface meta
+  // (credits, latency, cached) and structured failures. A success:false
+  // response is returned, not thrown — the caller decides how to present it.
+  async callEnvelope(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers: Record<string, string> = {},
+    timeoutMs?: number,
+  ): Promise<Record<string, unknown>> {
+    const { status, text, decoded } = await this.send(method, path, body, headers, timeoutMs);
+
+    if (isRecord(decoded) && typeof decoded.success === "boolean") {
+      return decoded;
+    }
+
+    throw new Error(`Hermai API ${method} ${path} returned ${status}: ${text}`);
   }
 }
 
@@ -172,6 +234,35 @@ export function createServer(client = new HermaiApiClient()): McpServer {
     async (args) => apiTool(() => client.call("GET", `/v1/schema-requests/${encodeURIComponent(args.request_id)}`)),
   );
 
+  // Execution is key-gated: only expose fetch_schema when a key is
+  // present, so the keyless install stays a free, read-only,
+  // zero-billing surface. /v1/fetch authenticates and consumes credits.
+  if (client.hasApiKey()) {
+    server.registerTool(
+      "fetch_schema",
+      {
+        title: "Fetch data through a Hermai schema",
+        description:
+          "Execute a registered Hermai schema and return live data through hosted /v1/fetch. Read workflows only (do not use for write workflows). Requires HERMAI_API_KEY (or HERMAI_PLATFORM_KEY) and consumes Hermai credits per call. Resolve the exact site + endpoint first with lookup_schema, then pass endpoint params here.",
+        inputSchema: {
+          site: z.string().min(1).describe("Registered site/host, for example wegmans.com. Resolve via lookup_schema."),
+          endpoint: z
+            .string()
+            .min(1)
+            .describe("Endpoint name from the schema, for example product_search. Case-sensitive; resolve via lookup_schema."),
+          params: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe("Endpoint parameters as key/value pairs, as defined by the schema."),
+        },
+        // Not readOnly: every call consumes Hermai credits (a side effect),
+        // so clients must not treat it as free to auto-invoke or cache.
+        annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async (args) => fetchSchemaTool(client, args as FetchSchemaArgs),
+    );
+  }
+
   return server;
 }
 
@@ -241,6 +332,69 @@ export function buildSchemaRequestBody(args: SchemaRequestArgs): Record<string, 
     if (value) body[key] = value;
   }
   return body;
+}
+
+export async function fetchSchema(
+  client: HermaiApiClient,
+  args: FetchSchemaArgs,
+  timeoutMs: number = fetchTimeoutMs(),
+): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = {
+    site: clean(args.site).toLowerCase(),
+    endpoint: clean(args.endpoint),
+  };
+  if (isRecord(args.params)) {
+    body.params = args.params;
+  }
+  return client.callEnvelope("POST", "/v1/fetch", body, {}, timeoutMs);
+}
+
+async function fetchSchemaTool(client: HermaiApiClient, args: FetchSchemaArgs): Promise<ToolResult> {
+  let envelope: Record<string, unknown>;
+  try {
+    envelope = await fetchSchema(client, args);
+  } catch (error) {
+    return textToolError(error instanceof Error ? error.message : String(error));
+  }
+
+  const meta = isRecord(envelope.meta) ? envelope.meta : undefined;
+  const target = `${clean(args.site).toLowerCase()}/${clean(args.endpoint)}`;
+
+  if (envelope.success === false) {
+    const err = isRecord(envelope.error) ? envelope.error : undefined;
+    const code = err && typeof err.code === "string" ? err.code : "FETCH_FAILED";
+    const message = err && typeof err.message === "string" ? err.message : "Fetch failed.";
+    return {
+      content: [{ type: "text", text: `Fetch failed for ${target} (${code}): ${message}${formatMetaSuffix(meta)}` }],
+      structuredContent: { success: false, error: { code, message }, meta },
+      isError: true,
+    };
+  }
+
+  const data = "data" in envelope ? envelope.data : null;
+  return {
+    content: [{ type: "text", text: `Fetched ${target}${formatMetaSuffix(meta)}\n\n${JSON.stringify(data ?? null, null, 2)}` }],
+    structuredContent: { success: true, data: data ?? null, meta },
+  };
+}
+
+// formatMetaSuffix renders the billing/latency fields the gateway returns
+// in meta. Only code/message/cached/credits_used/latency_ms are part of
+// the public fetch contract; credits_remaining is included when present.
+function formatMetaSuffix(meta?: Record<string, unknown>): string {
+  if (!meta) return "";
+  const parts: string[] = [];
+  if (typeof meta.credits_used === "number") parts.push(`credits_used=${meta.credits_used}`);
+  if (typeof meta.credits_remaining === "number") parts.push(`credits_remaining=${meta.credits_remaining}`);
+  if (typeof meta.latency_ms === "number") parts.push(`latency_ms=${meta.latency_ms}`);
+  if (typeof meta.cached === "boolean") parts.push(`cached=${meta.cached}`);
+  return parts.length ? ` [${parts.join(", ")}]` : "";
+}
+
+function fetchTimeoutMs(): number {
+  const raw = env("HERMAI_FETCH_TIMEOUT_MS");
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_FETCH_TIMEOUT_MS;
 }
 
 export function classifyWorkflow(prose: string): Record<string, unknown> {
