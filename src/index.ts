@@ -243,7 +243,7 @@ export function createServer(client = new HermaiApiClient()): McpServer {
       {
         title: "Fetch data through a Hermai schema",
         description:
-          "Execute a registered Hermai schema and return live data through hosted /v1/fetch. Read workflows only (do not use for write workflows). Requires HERMAI_API_KEY (or HERMAI_PLATFORM_KEY) and consumes Hermai credits per call. Resolve the exact site + endpoint first with lookup_schema, then pass endpoint params here.",
+          "Execute a registered Hermai schema and return live data through hosted /v1/fetch. Read workflows only (do not use for write workflows). Requires HERMAI_API_KEY (or HERMAI_PLATFORM_KEY) and consumes Hermai credits: a standard call costs 1 credit, some higher cost sites cost 5, and only successful calls are billed. If the workspace is out of credits the call returns a 402 whose error carries upgrade_to and upgrade_url. Resolve the exact site + endpoint first with lookup_schema, then pass endpoint params here.",
         inputSchema: {
           site: z.string().min(1).describe("Registered site/host, for example wegmans.com. Resolve via lookup_schema."),
           endpoint: z
@@ -349,7 +349,7 @@ export async function fetchSchema(
   return client.callEnvelope("POST", "/v1/fetch", body, {}, timeoutMs);
 }
 
-async function fetchSchemaTool(client: HermaiApiClient, args: FetchSchemaArgs): Promise<ToolResult> {
+export async function fetchSchemaTool(client: HermaiApiClient, args: FetchSchemaArgs): Promise<ToolResult> {
   let envelope: Record<string, unknown>;
   try {
     envelope = await fetchSchema(client, args);
@@ -364,9 +364,27 @@ async function fetchSchemaTool(client: HermaiApiClient, args: FetchSchemaArgs): 
     const err = isRecord(envelope.error) ? envelope.error : undefined;
     const code = err && typeof err.code === "string" ? err.code : "FETCH_FAILED";
     const message = err && typeof err.message === "string" ? err.message : "Fetch failed.";
+    // pricing-v2: preserve the structured upgrade path the gateway attaches
+    // to entitlement 402s instead of flattening the error to {code,message}.
+    // Forward whichever of these string fields the backend sent so an agent
+    // can act on the denial (upgrade_to = target plan/addon, upgrade_url =
+    // where to resolve it).
+    const structuredError: Record<string, unknown> = { code, message };
+    for (const key of ["upgrade_to", "upgrade_url", "reason", "cause"] as const) {
+      const value = err && err[key];
+      if (typeof value === "string" && value) structuredError[key] = value;
+    }
+    const upgradeUrl =
+      typeof structuredError.upgrade_url === "string" ? structuredError.upgrade_url : undefined;
+    const upgradeSuffix = upgradeUrl ? `\nUpgrade: ${upgradeUrl}` : "";
     return {
-      content: [{ type: "text", text: `Fetch failed for ${target} (${code}): ${message}${formatMetaSuffix(meta)}` }],
-      structuredContent: { success: false, error: { code, message }, meta },
+      content: [
+        {
+          type: "text",
+          text: `Fetch failed for ${target} (${code}): ${message}${formatMetaSuffix(meta)}${upgradeSuffix}`,
+        },
+      ],
+      structuredContent: { success: false, error: structuredError, meta },
       isError: true,
     };
   }

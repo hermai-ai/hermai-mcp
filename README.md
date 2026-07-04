@@ -50,6 +50,6 @@ Always available (no key required):
 
 Available only when `HERMAI_API_KEY` (or `HERMAI_PLATFORM_KEY`) is set:
 
-- `fetch_schema` — execute a registered schema through hosted `/v1/fetch` and return live data. **Read-only data retrieval, and it consumes Hermai credits per call.** Inputs: `site`, `endpoint` (resolve both with `lookup_schema` first; `endpoint` is case-sensitive), and optional `params`. The result includes the upstream `data` plus a meta summary (`credits_used`, `credits_remaining`, `latency_ms`, `cached`); failures surface the API `code` and `message`. Use it for read workflows only — write/owner-approved workflows go through the Hermai CLI's signed-write path, not this tool.
+- `fetch_schema` — execute a registered schema through hosted `/v1/fetch` and return live data. **Read-only data retrieval, and it consumes Hermai credits: a standard call costs 1 credit and some higher cost sites cost 5; only successful calls are billed.** Inputs: `site`, `endpoint` (resolve both with `lookup_schema` first; `endpoint` is case-sensitive), and optional `params`. The result includes the upstream `data` plus a meta summary (`credits_used`, `credits_remaining`, `latency_ms`, `cached`); failures surface the API `code` and `message`, plus `upgrade_to` and `upgrade_url` when a credit 402 offers an upgrade path. Use it for read workflows only — write/owner-approved workflows go through the Hermai CLI's signed-write path, not this tool.
 
 Never submit cookies, bearer tokens, API keys, session IDs, or private session data through schema-request intake.
