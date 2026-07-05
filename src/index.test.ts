@@ -114,7 +114,7 @@ test("fetchSchemaTool surfaces the 402 upgrade path in structuredContent and tex
         code: "INSUFFICIENT_CREDITS",
         message: "insufficient credits",
         upgrade_to: "pro",
-        upgrade_url: "https://hermai.ai/dashboard/billing",
+        upgrade_url: "https://hermai.ai/pricing",
       },
     },
     402,
@@ -125,10 +125,10 @@ test("fetchSchemaTool surfaces the 402 upgrade path in structuredContent and tex
   assert.equal(result.isError, true);
   const err = (result.structuredContent as { error: Record<string, unknown> }).error;
   assert.equal(err.upgrade_to, "pro");
-  assert.equal(err.upgrade_url, "https://hermai.ai/dashboard/billing");
+  assert.equal(err.upgrade_url, "https://hermai.ai/pricing");
   // The URL is appended to the human-readable text so a plain text client
   // still sees the next step.
-  assert.match(result.content[0].text, /https:\/\/hermai\.ai\/dashboard\/billing/);
+  assert.match(result.content[0].text, /https:\/\/hermai\.ai\/pricing/);
 });
 
 test("fetchSchemaTool leaves non-upgrade failures as plain {code,message}", async () => {
