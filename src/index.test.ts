@@ -4,6 +4,7 @@ import {
   buildSchemaRequestBody,
   classifyWorkflow,
   fetchSchema,
+  fetchSchemaTool,
   HermaiApiClient,
   isCliEntrypoint,
   missingIntakeFields,
@@ -103,6 +104,45 @@ test("fetchSchema returns structured failures instead of throwing", async () => 
 
   assert.equal(envelope.success, false);
   assert.deepEqual(envelope.error, { code: "INSUFFICIENT_CREDITS", message: "insufficient credits" });
+});
+
+test("fetchSchemaTool surfaces the 402 upgrade path in structuredContent and text", async () => {
+  const { client } = stubClient(
+    {
+      success: false,
+      error: {
+        code: "INSUFFICIENT_CREDITS",
+        message: "insufficient credits",
+        upgrade_to: "pro",
+        upgrade_url: "https://hermai.ai/pricing",
+      },
+    },
+    402,
+  );
+
+  const result = await fetchSchemaTool(client, { site: "wegmans.com", endpoint: "product_search" });
+
+  assert.equal(result.isError, true);
+  const err = (result.structuredContent as { error: Record<string, unknown> }).error;
+  assert.equal(err.upgrade_to, "pro");
+  assert.equal(err.upgrade_url, "https://hermai.ai/pricing");
+  // The URL is appended to the human-readable text so a plain text client
+  // still sees the next step.
+  assert.match(result.content[0].text, /https:\/\/hermai\.ai\/pricing/);
+});
+
+test("fetchSchemaTool leaves non-upgrade failures as plain {code,message}", async () => {
+  const { client } = stubClient(
+    { success: false, error: { code: "SCHEMA_NOT_FOUND", message: "no such endpoint" } },
+    404,
+  );
+
+  const result = await fetchSchemaTool(client, { site: "wegmans.com", endpoint: "nope" });
+
+  assert.equal(result.isError, true);
+  const err = (result.structuredContent as { error: Record<string, unknown> }).error;
+  assert.deepEqual(err, { code: "SCHEMA_NOT_FOUND", message: "no such endpoint" });
+  assert.doesNotMatch(result.content[0].text, /Upgrade:/);
 });
 
 test("hasApiKey gates fetch_schema exposure", () => {
