@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const DEFAULT_API_BASE = "https://api.hermai.ai";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "1.1.1";
 
 // Hosted fetch lanes can be slow (warm browser cold-solves run tens of
 // seconds). Give /v1/fetch a long, bounded, env-overridable timeout
