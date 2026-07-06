@@ -12,6 +12,11 @@ permissions:
 jobs:
   npm:
     runs-on: ubuntu-latest
+    # Gate the publish on the protected `release` environment. Configure it in
+    # repo Settings > Environments with REQUIRED REVIEWERS (and ideally a
+    # deployment tag rule restricting it to v* tags) so a pushed tag cannot
+    # auto-publish arbitrary code to `npx hermai-mcp` without human approval.
+    environment: release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -43,7 +48,10 @@ jobs:
             echo "NPM_TOKEN secret is required until npm trusted publishing is confirmed for this package."
             exit 1
           fi
-          npm publish --access public
+          # --provenance attaches a signed build-provenance attestation (uses the
+          # id-token: write permission above) so consumers can verify this
+          # artifact was built from this repo/workflow and not tampered with.
+          npm publish --provenance --access public
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
