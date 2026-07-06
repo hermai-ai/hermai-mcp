@@ -1,6 +1,6 @@
 {
   "name": "hermai-mcp",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Hermai MCP server for website API schema lookup, hosted fetch execution, request intake, and workflow classification.",
   "type": "module",
   "main": "dist/index.js",
