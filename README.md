@@ -38,6 +38,53 @@ Optional environment variables:
 - `HERMAI_API_KEY` or `HERMAI_PLATFORM_KEY`: API key for authenticated Hermai APIs. Public schema lookup and schema-request intake work without a key. Setting a key also unlocks the `fetch_schema` execution tool (see below).
 - `HERMAI_FETCH_TIMEOUT_MS`: request timeout for `fetch_schema`. Defaults to `120000` (hosted fetch lanes can run tens of seconds).
 
+## Claude Code workflow
+
+Use the local MCP server when you want Claude Code to discover a schema, inspect
+the available workflow, and make an authenticated read request. Hermai MCP is a
+local stdio server. It is not a remote Claude connector.
+
+Install Claude Code, then add Hermai to your personal Claude Code configuration:
+
+```bash
+export HERMAI_API_KEY='hm_sk_...'
+claude mcp add --scope user hermai -e HERMAI_API_KEY="$HERMAI_API_KEY" -- npx -y hermai-mcp
+unset HERMAI_API_KEY
+```
+
+The key is saved in your local Claude Code configuration. Do not put this command
+in a repository, shared shell history, or a project scoped MCP configuration.
+
+Confirm that Claude Code can see the server:
+
+```bash
+claude mcp list
+```
+
+Then start Claude Code and use this two step request:
+
+```text
+Use lookup_schema to find a verified public Hermai schema for [the source and task].
+Before making a fetch, show me the site, endpoint, required parameters, and whether
+the result can be retrieved with fetch_schema.
+```
+
+After you approve the selected workflow:
+
+```text
+Use fetch_schema with the site, endpoint, and parameters we selected. Return a short
+summary of the records, then show credits_used, credits_remaining, and cached from
+the response metadata.
+```
+
+`lookup_schema` is safe to use without a key. `fetch_schema` appears only when the
+key is configured. It reads data through Hermai Cloud and consumes credits for a
+successful request. Do not give the server browser cookies, bearer tokens, or a
+request that changes data on another service.
+
+For a full verification checklist and the expected failure paths, see
+[the Claude Code guide](docs/claude-code.md).
+
 ## Tools
 
 Always available (no key required):
