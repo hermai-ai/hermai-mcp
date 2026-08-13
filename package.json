@@ -13,6 +13,7 @@
     "!dist/**/*.test.*",
     "server.json",
     "README.md",
+    "docs/claude-code.md",
     "LICENSE"
   ],
   "scripts": {
